@@ -8,12 +8,7 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
-import type {
-  PolicySummary,
-  PolicyDocument,
-  AuditQuestion,
-  AnalysisResult,
-} from "@/lib/types";
+import type { AuditQuestion, AnalysisResult } from "@/lib/types";
 
 type AnalysisPhase =
   | "idle"
@@ -23,8 +18,6 @@ type AnalysisPhase =
   | "error";
 
 interface AuditState {
-  policyList: PolicySummary[];
-  selectedPolicyNames: string[];
   questions: AuditQuestion[];
   results: AnalysisResult[];
   phase: AnalysisPhase;
@@ -33,10 +26,6 @@ interface AuditState {
 }
 
 interface AuditActions {
-  fetchPolicies: (search?: string) => Promise<void>;
-  togglePolicy: (name: string) => void;
-  selectAllPolicies: () => void;
-  clearPolicies: () => void;
   uploadQuestionnaire: (file: File) => Promise<void>;
   runAnalysis: () => Promise<void>;
   reset: () => void;
@@ -45,7 +34,6 @@ interface AuditActions {
 const STORAGE_KEY = "readily-audit-state";
 
 interface PersistedState {
-  selectedPolicyNames: string[];
   questions: AuditQuestion[];
   results: AnalysisResult[];
   phase: AnalysisPhase;
@@ -74,8 +62,6 @@ const AuditContext = createContext<(AuditState & AuditActions) | null>(null);
 
 export function AuditProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
-  const [policyList, setPolicyList] = useState<PolicySummary[]>([]);
-  const [selectedPolicyNames, setSelectedPolicyNames] = useState<string[]>([]);
   const [questions, setQuestions] = useState<AuditQuestion[]>([]);
   const [results, setResults] = useState<AnalysisResult[]>([]);
   const [phase, setPhase] = useState<AnalysisPhase>("idle");
@@ -85,54 +71,22 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     total: number;
   } | null>(null);
 
-  // Hydrate from localStorage on mount
   useEffect(() => {
     const saved = loadPersistedState();
-    if (saved.selectedPolicyNames) setSelectedPolicyNames(saved.selectedPolicyNames);
     if (saved.questions) setQuestions(saved.questions);
     if (saved.results) setResults(saved.results);
     if (saved.phase === "done") setPhase("done");
     setHydrated(true);
   }, []);
 
-  // Persist to localStorage on change
   useEffect(() => {
     if (!hydrated) return;
     persistState({
-      selectedPolicyNames,
       questions,
       results,
       phase: phase === "done" ? "done" : "idle",
     });
-  }, [hydrated, selectedPolicyNames, questions, results, phase]);
-
-  const fetchPolicies = useCallback(async (search?: string) => {
-    try {
-      const url = search
-        ? `/api/policies?search=${encodeURIComponent(search)}`
-        : "/api/policies";
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      setPolicyList(data.policies);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to fetch policies");
-    }
-  }, []);
-
-  const togglePolicy = useCallback((name: string) => {
-    setSelectedPolicyNames((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
-    );
-  }, []);
-
-  const selectAllPolicies = useCallback(() => {
-    setSelectedPolicyNames(policyList.map((p) => p.name));
-  }, [policyList]);
-
-  const clearPolicies = useCallback(() => {
-    setSelectedPolicyNames([]);
-  }, []);
+  }, [hydrated, questions, results, phase]);
 
   const uploadQuestionnaire = useCallback(async (file: File) => {
     setPhase("uploading-questionnaire");
@@ -166,21 +120,6 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     setError(null);
     setResults([]);
     try {
-      const policyRes = await fetch("/api/policies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ names: selectedPolicyNames }),
-      });
-      if (!policyRes.ok) throw new Error("Failed to load policy texts");
-      const { policies } = (await policyRes.json()) as {
-        policies: PolicyDocument[];
-      };
-
-      const policyTexts = policies.map((p) => ({
-        name: p.name,
-        text: p.pages.map((pg) => `[Page ${pg.page}] ${pg.text}`).join("\n"),
-      }));
-
       const totalBatches = Math.ceil(questions.length / BATCH_SIZE);
       setAnalysisProgress({ completed: 0, total: totalBatches });
       const allResults: AnalysisResult[] = [];
@@ -190,7 +129,7 @@ export function AuditProvider({ children }: { children: ReactNode }) {
         const res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ questions: batch, policyTexts }),
+          body: JSON.stringify({ questions: batch }),
         });
 
         if (!res.ok) throw new Error(await res.text());
@@ -210,10 +149,9 @@ export function AuditProvider({ children }: { children: ReactNode }) {
       setPhase("error");
       setAnalysisProgress(null);
     }
-  }, [questions, selectedPolicyNames]);
+  }, [questions]);
 
   const reset = useCallback(() => {
-    setSelectedPolicyNames([]);
     setQuestions([]);
     setResults([]);
     setPhase("idle");
@@ -225,17 +163,11 @@ export function AuditProvider({ children }: { children: ReactNode }) {
   return (
     <AuditContext.Provider
       value={{
-        policyList,
-        selectedPolicyNames,
         questions,
         results,
         phase,
         error,
         analysisProgress,
-        fetchPolicies,
-        togglePolicy,
-        selectAllPolicies,
-        clearPolicies,
         uploadQuestionnaire,
         runAnalysis,
         reset,

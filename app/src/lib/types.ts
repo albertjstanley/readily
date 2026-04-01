@@ -1,16 +1,3 @@
-export interface PolicySummary {
-  name: string;
-  category: string;
-  totalPages: number;
-  matchingPages?: number[];
-}
-
-export interface PolicyDocument {
-  name: string;
-  category: string;
-  pages: { page: number; text: string }[];
-}
-
 export interface AuditQuestion {
   number: number;
   text: string;

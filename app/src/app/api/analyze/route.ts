@@ -1,17 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeCompliance } from "@/lib/gemini";
+import policyIndex from "@/lib/policy-index.json";
 
 const MAX_POLICY_CHARS = 80000;
 
+interface PolicyEntry {
+  name: string;
+  category: string;
+  pages: { page: number; text: string }[];
+}
+
+const allPolicies = (policyIndex as PolicyEntry[]).map((p) => ({
+  name: p.name,
+  text: p.pages.map((pg) => `[Page ${pg.page}] ${pg.text}`).join("\n"),
+}));
+
 function selectRelevantPolicies(
-  questions: { number: number; text: string; reference: string }[],
-  policyTexts: { name: string; text: string }[]
+  questions: { number: number; text: string; reference: string }[]
 ): { name: string; text: string }[] {
   const keywords = questions
-    .flatMap((q) => q.text.toLowerCase().split(/\s+/))
+    .flatMap((q) =>
+      `${q.text} ${q.reference}`.toLowerCase().split(/\s+/)
+    )
     .filter((w) => w.length > 4);
 
-  const scored = policyTexts.map((p) => {
+  const scored = allPolicies.map((p) => {
     const lower = p.text.toLowerCase();
     const score = keywords.filter((k) => lower.includes(k)).length;
     return { ...p, score };
@@ -42,19 +55,22 @@ function selectRelevantPolicies(
 
 export async function POST(req: NextRequest) {
   try {
-    const { questions, policyTexts } = await req.json();
+    const { questions } = await req.json();
 
-    if (!questions?.length || !policyTexts?.length) {
+    if (!questions?.length) {
       return NextResponse.json(
-        { error: "Questions and policy texts are required" },
+        { error: "Questions are required" },
         { status: 400 }
       );
     }
 
-    const relevant = selectRelevantPolicies(questions, policyTexts);
+    const relevant = selectRelevantPolicies(questions);
     const results = await analyzeCompliance(questions, relevant);
 
-    return NextResponse.json({ results });
+    return NextResponse.json({
+      results,
+      policiesSearched: relevant.map((p) => p.name),
+    });
   } catch (e) {
     console.error("Error analyzing compliance:", e);
     return NextResponse.json(
