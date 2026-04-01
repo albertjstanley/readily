@@ -133,12 +133,13 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     setPhase("uploading-questionnaire");
     setError(null);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
+      const { extractTextFromPDFClient } = await import("@/lib/pdf-client");
+      const text = await extractTextFromPDFClient(file);
 
       const res = await fetch("/api/parse-questionnaire", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
       });
 
       if (!res.ok) throw new Error(await res.text());
