@@ -1,4 +1,7 @@
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
+
+// Disable worker for server-side usage (no web workers in Node.js serverless)
+GlobalWorkerOptions.workerSrc = "";
 
 export interface PageContent {
   page: number;
@@ -14,7 +17,12 @@ export async function extractPagesFromPDF(
   buffer: Buffer
 ): Promise<PageContent[]> {
   const uint8 = new Uint8Array(buffer);
-  const doc = await getDocument({ data: uint8 }).promise;
+  const doc = await getDocument({
+    data: uint8,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    useSystemFonts: true,
+  }).promise;
   const pages: PageContent[] = [];
 
   for (let i = 1; i <= doc.numPages; i++) {
