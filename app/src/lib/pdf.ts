@@ -1,13 +1,11 @@
-import { getDocument, type TextItem } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 export interface PageContent {
   page: number;
   text: string;
 }
 
-export async function extractTextFromPDF(
-  buffer: Buffer
-): Promise<string> {
+export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
   const pages = await extractPagesFromPDF(buffer);
   return pages.map((p) => p.text).join("\n");
 }
@@ -22,8 +20,8 @@ export async function extractPagesFromPDF(
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
     const content = await page.getTextContent();
-    const text = content.items
-      .filter((item): item is TextItem => "str" in item)
+    const text = (content.items as Array<{ str?: string }>)
+      .filter((item) => typeof item.str === "string")
       .map((item) => item.str)
       .join(" ");
     pages.push({ page: i, text });
