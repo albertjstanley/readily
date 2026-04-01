@@ -29,6 +29,7 @@ interface AuditState {
   results: AnalysisResult[];
   phase: AnalysisPhase;
   error: string | null;
+  analysisProgress: { completed: number; total: number } | null;
 }
 
 interface AuditActions {
@@ -79,6 +80,10 @@ export function AuditProvider({ children }: { children: ReactNode }) {
   const [results, setResults] = useState<AnalysisResult[]>([]);
   const [phase, setPhase] = useState<AnalysisPhase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [analysisProgress, setAnalysisProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
 
   // Hydrate from localStorage on mount
   useEffect(() => {
@@ -156,8 +161,10 @@ export function AuditProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const runAnalysis = useCallback(async () => {
+    const BATCH_SIZE = 5;
     setPhase("analyzing");
     setError(null);
+    setResults([]);
     try {
       const policyRes = await fetch("/api/policies", {
         method: "POST",
@@ -174,20 +181,34 @@ export function AuditProvider({ children }: { children: ReactNode }) {
         text: p.pages.map((pg) => `[Page ${pg.page}] ${pg.text}`).join("\n"),
       }));
 
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ questions, policyTexts }),
-      });
+      const totalBatches = Math.ceil(questions.length / BATCH_SIZE);
+      setAnalysisProgress({ completed: 0, total: totalBatches });
+      const allResults: AnalysisResult[] = [];
 
-      if (!res.ok) throw new Error(await res.text());
+      for (let i = 0; i < questions.length; i += BATCH_SIZE) {
+        const batch = questions.slice(i, i + BATCH_SIZE);
+        const res = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ questions: batch, policyTexts }),
+        });
 
-      const data = await res.json();
-      setResults(data.results);
+        if (!res.ok) throw new Error(await res.text());
+
+        const data = await res.json();
+        allResults.push(...data.results);
+        setResults([...allResults]);
+
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        setAnalysisProgress({ completed: batchNum, total: totalBatches });
+      }
+
       setPhase("done");
+      setAnalysisProgress(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analysis failed");
       setPhase("error");
+      setAnalysisProgress(null);
     }
   }, [questions, selectedPolicyNames]);
 
@@ -197,6 +218,7 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     setResults([]);
     setPhase("idle");
     setError(null);
+    setAnalysisProgress(null);
     localStorage.removeItem(STORAGE_KEY);
   }, []);
 
@@ -209,6 +231,7 @@ export function AuditProvider({ children }: { children: ReactNode }) {
         results,
         phase,
         error,
+        analysisProgress,
         fetchPolicies,
         togglePolicy,
         selectAllPolicies,

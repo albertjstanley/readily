@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeCompliance } from "@/lib/gemini";
 
-const BATCH_SIZE = 5;
 const MAX_POLICY_CHARS = 80000;
 
 function selectRelevantPolicies(
@@ -52,16 +51,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const allResults = [];
+    const relevant = selectRelevantPolicies(questions, policyTexts);
+    const results = await analyzeCompliance(questions, relevant);
 
-    for (let i = 0; i < questions.length; i += BATCH_SIZE) {
-      const batch = questions.slice(i, i + BATCH_SIZE);
-      const relevant = selectRelevantPolicies(batch, policyTexts);
-      const batchResults = await analyzeCompliance(batch, relevant);
-      allResults.push(...batchResults);
-    }
-
-    return NextResponse.json({ results: allResults });
+    return NextResponse.json({ results });
   } catch (e) {
     console.error("Error analyzing compliance:", e);
     return NextResponse.json(

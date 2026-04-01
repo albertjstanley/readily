@@ -15,6 +15,7 @@ export default function Home() {
     questions,
     phase,
     error,
+    analysisProgress,
     uploadQuestionnaire,
     runAnalysis,
   } = useAudit();
@@ -57,7 +58,9 @@ export default function Home() {
           message={
             phase === "uploading-questionnaire"
               ? "Extracting audit questions..."
-              : "Analyzing compliance — this may take a minute..."
+              : analysisProgress
+                ? `Analyzing batch ${analysisProgress.completed + 1} of ${analysisProgress.total}...`
+                : "Analyzing compliance — this may take a minute..."
           }
         />
       ) : (
