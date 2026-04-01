@@ -10,19 +10,30 @@ import {
 } from "react";
 import type { AuditQuestion, AnalysisResult } from "@/lib/types";
 
-type AnalysisPhase =
+export type AnalysisPhase =
   | "idle"
   | "uploading-questionnaire"
+  | "parsing-pdf"
+  | "extracting-questions"
   | "analyzing"
   | "done"
   | "error";
+
+export interface AnalysisProgress {
+  batchCompleted: number;
+  batchTotal: number;
+  keywords: string[];
+  policiesMatched: string[];
+  totalPoliciesScanned: number;
+  batchTimesMs: number[];
+}
 
 interface AuditState {
   questions: AuditQuestion[];
   results: AnalysisResult[];
   phase: AnalysisPhase;
   error: string | null;
-  analysisProgress: { completed: number; total: number } | null;
+  analysisProgress: AnalysisProgress | null;
 }
 
 interface AuditActions {
@@ -53,9 +64,7 @@ function loadPersistedState(): Partial<PersistedState> {
 function persistState(state: PersistedState) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // storage full or unavailable
-  }
+  } catch {}
 }
 
 const AuditContext = createContext<(AuditState & AuditActions) | null>(null);
@@ -66,10 +75,8 @@ export function AuditProvider({ children }: { children: ReactNode }) {
   const [results, setResults] = useState<AnalysisResult[]>([]);
   const [phase, setPhase] = useState<AnalysisPhase>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [analysisProgress, setAnalysisProgress] = useState<{
-    completed: number;
-    total: number;
-  } | null>(null);
+  const [analysisProgress, setAnalysisProgress] =
+    useState<AnalysisProgress | null>(null);
 
   useEffect(() => {
     const saved = loadPersistedState();
@@ -89,12 +96,13 @@ export function AuditProvider({ children }: { children: ReactNode }) {
   }, [hydrated, questions, results, phase]);
 
   const uploadQuestionnaire = useCallback(async (file: File) => {
-    setPhase("uploading-questionnaire");
     setError(null);
     try {
+      setPhase("parsing-pdf");
       const { extractTextFromPDFClient } = await import("@/lib/pdf-client");
       const text = await extractTextFromPDFClient(file);
 
+      setPhase("extracting-questions");
       const res = await fetch("/api/parse-questionnaire", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -121,11 +129,25 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     setResults([]);
     try {
       const totalBatches = Math.ceil(questions.length / BATCH_SIZE);
-      setAnalysisProgress({ completed: 0, total: totalBatches });
       const allResults: AnalysisResult[] = [];
+      const allKeywords = new Set<string>();
+      const allPolicies = new Set<string>();
+      const batchTimesMs: number[] = [];
+      let totalScanned = 0;
+
+      setAnalysisProgress({
+        batchCompleted: 0,
+        batchTotal: totalBatches,
+        keywords: [],
+        policiesMatched: [],
+        totalPoliciesScanned: 0,
+        batchTimesMs: [],
+      });
 
       for (let i = 0; i < questions.length; i += BATCH_SIZE) {
         const batch = questions.slice(i, i + BATCH_SIZE);
+        const batchStart = Date.now();
+
         const res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -135,11 +157,29 @@ export function AuditProvider({ children }: { children: ReactNode }) {
         if (!res.ok) throw new Error(await res.text());
 
         const data = await res.json();
+        const elapsed = Date.now() - batchStart;
+        batchTimesMs.push(elapsed);
+
         allResults.push(...data.results);
         setResults([...allResults]);
 
+        if (data.meta) {
+          data.meta.keywords?.forEach((k: string) => allKeywords.add(k));
+          data.meta.policiesMatched?.forEach((p: string) =>
+            allPolicies.add(p)
+          );
+          totalScanned = data.meta.totalPoliciesScanned ?? totalScanned;
+        }
+
         const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-        setAnalysisProgress({ completed: batchNum, total: totalBatches });
+        setAnalysisProgress({
+          batchCompleted: batchNum,
+          batchTotal: totalBatches,
+          keywords: [...allKeywords],
+          policiesMatched: [...allPolicies],
+          totalPoliciesScanned: totalScanned,
+          batchTimesMs: [...batchTimesMs],
+        });
       }
 
       setPhase("done");

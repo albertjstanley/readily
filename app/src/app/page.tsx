@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAudit } from "@/context/AuditContext";
 import { FileUploader } from "@/components/FileUploader";
-import { ProgressBar } from "@/components/ProgressBar";
+import { AnalysisProgressView } from "@/components/AnalysisProgress";
 import { ArrowRight, ShieldCheck, FileSearch } from "lucide-react";
 
 export default function Home() {
@@ -34,7 +34,9 @@ export default function Home() {
   };
 
   const isProcessing =
-    phase === "uploading-questionnaire" || phase === "analyzing";
+    phase === "parsing-pdf" ||
+    phase === "extracting-questions" ||
+    phase === "analyzing";
 
   return (
     <div className="flex flex-1 flex-col items-center px-4 py-12">
@@ -52,14 +54,10 @@ export default function Home() {
       </div>
 
       {isProcessing ? (
-        <ProgressBar
-          message={
-            phase === "uploading-questionnaire"
-              ? "Extracting audit questions..."
-              : analysisProgress
-                ? `Analyzing batch ${analysisProgress.completed + 1} of ${analysisProgress.total}...`
-                : "Starting compliance analysis..."
-          }
+        <AnalysisProgressView
+          phase={phase}
+          progress={analysisProgress}
+          questionsTotal={questions.length}
         />
       ) : (
         <div className="w-full max-w-xl">

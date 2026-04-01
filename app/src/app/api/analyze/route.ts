@@ -15,14 +15,32 @@ const allPolicies = (policyIndex as PolicyEntry[]).map((p) => ({
   text: p.pages.map((pg) => `[Page ${pg.page}] ${pg.text}`).join("\n"),
 }));
 
+interface SelectionResult {
+  policies: { name: string; text: string }[];
+  keywords: string[];
+  totalPoliciesScanned: number;
+}
+
 function selectRelevantPolicies(
   questions: { number: number; text: string; reference: string }[]
-): { name: string; text: string }[] {
-  const keywords = questions
-    .flatMap((q) =>
-      `${q.text} ${q.reference}`.toLowerCase().split(/\s+/)
-    )
-    .filter((w) => w.length > 4);
+): SelectionResult {
+  const stopWords = new Set([
+    "about", "after", "which", "would", "could", "should", "their",
+    "there", "these", "those", "under", "other", "where", "while",
+    "being", "every", "above", "below", "between", "through", "during",
+    "before", "state", "states", "does",
+  ]);
+
+  const keywords = [
+    ...new Set(
+      questions
+        .flatMap((q) =>
+          `${q.text} ${q.reference}`.toLowerCase().split(/\s+/)
+        )
+        .map((w) => w.replace(/[^a-z0-9]/g, ""))
+        .filter((w) => w.length > 4 && !stopWords.has(w))
+    ),
+  ];
 
   const scored = allPolicies.map((p) => {
     const lower = p.text.toLowerCase();
@@ -50,7 +68,11 @@ function selectRelevantPolicies(
     });
   }
 
-  return selected;
+  return {
+    policies: selected,
+    keywords,
+    totalPoliciesScanned: allPolicies.length,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -64,12 +86,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const relevant = selectRelevantPolicies(questions);
+    const { policies: relevant, keywords, totalPoliciesScanned } =
+      selectRelevantPolicies(questions);
     const results = await analyzeCompliance(questions, relevant);
 
     return NextResponse.json({
       results,
-      policiesSearched: relevant.map((p) => p.name),
+      meta: {
+        keywords,
+        policiesMatched: relevant.map((p) => p.name),
+        totalPoliciesScanned,
+        contextChars: relevant.reduce((sum, p) => sum + p.text.length, 0),
+      },
     });
   } catch (e) {
     console.error("Error analyzing compliance:", e);
