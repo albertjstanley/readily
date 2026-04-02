@@ -127,11 +127,17 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     setError(null);
     setResults([]);
     try {
-      const totalBatches = Math.ceil(questions.length / BATCH_SIZE);
-      const allResults: AnalysisResult[] = [];
+      const batches: AuditQuestion[][] = [];
+      for (let i = 0; i < questions.length; i += BATCH_SIZE) {
+        batches.push(questions.slice(i, i + BATCH_SIZE));
+      }
+
+      const totalBatches = batches.length;
+      const allResults: (AnalysisResult[] | null)[] = new Array(totalBatches).fill(null);
       const allPolicies = new Set<string>();
-      const batchTimesMs: number[] = [];
+      let completedCount = 0;
       let totalChunks = 0;
+      const startTime = Date.now();
 
       setAnalysisProgress({
         batchCompleted: 0,
@@ -141,10 +147,7 @@ export function AuditProvider({ children }: { children: ReactNode }) {
         batchTimesMs: [],
       });
 
-      for (let i = 0; i < questions.length; i += BATCH_SIZE) {
-        const batch = questions.slice(i, i + BATCH_SIZE);
-        const batchStart = Date.now();
-
+      const promises = batches.map(async (batch, batchIdx) => {
         const res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -154,11 +157,7 @@ export function AuditProvider({ children }: { children: ReactNode }) {
         if (!res.ok) throw new Error(await res.text());
 
         const data = await res.json();
-        const elapsed = Date.now() - batchStart;
-        batchTimesMs.push(elapsed);
-
-        allResults.push(...data.results);
-        setResults([...allResults]);
+        allResults[batchIdx] = data.results;
 
         if (data.meta) {
           data.meta.policiesMatched?.forEach((p: string) =>
@@ -167,16 +166,22 @@ export function AuditProvider({ children }: { children: ReactNode }) {
           totalChunks += data.meta.chunksRetrieved ?? 0;
         }
 
-        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        completedCount++;
+        const flat = allResults.filter(Boolean).flat() as AnalysisResult[];
+        setResults(flat);
         setAnalysisProgress({
-          batchCompleted: batchNum,
+          batchCompleted: completedCount,
           batchTotal: totalBatches,
           policiesMatched: [...allPolicies],
           chunksRetrieved: totalChunks,
-          batchTimesMs: [...batchTimesMs],
+          batchTimesMs: [Date.now() - startTime],
         });
-      }
+      });
 
+      await Promise.all(promises);
+
+      const flat = allResults.filter(Boolean).flat() as AnalysisResult[];
+      setResults(flat);
       setPhase("done");
       setAnalysisProgress(null);
     } catch (e) {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { analyzeCompliance } from "@/lib/gemini";
 import { queryRelevantChunks, type RetrievedChunk } from "@/lib/pinecone";
 
-const TOP_K_PER_QUESTION = 10;
+const TOP_K_PER_QUESTION = 5;
 
 function buildContext(chunks: RetrievedChunk[]): {
   policyTexts: { name: string; text: string }[];
