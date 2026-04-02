@@ -22,9 +22,8 @@ export type AnalysisPhase =
 export interface AnalysisProgress {
   batchCompleted: number;
   batchTotal: number;
-  keywords: string[];
   policiesMatched: string[];
-  totalPoliciesScanned: number;
+  chunksRetrieved: number;
   batchTimesMs: number[];
 }
 
@@ -123,24 +122,22 @@ export function AuditProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const runAnalysis = useCallback(async () => {
-    const BATCH_SIZE = 5;
+    const BATCH_SIZE = 10;
     setPhase("analyzing");
     setError(null);
     setResults([]);
     try {
       const totalBatches = Math.ceil(questions.length / BATCH_SIZE);
       const allResults: AnalysisResult[] = [];
-      const allKeywords = new Set<string>();
       const allPolicies = new Set<string>();
       const batchTimesMs: number[] = [];
-      let totalScanned = 0;
+      let totalChunks = 0;
 
       setAnalysisProgress({
         batchCompleted: 0,
         batchTotal: totalBatches,
-        keywords: [],
         policiesMatched: [],
-        totalPoliciesScanned: 0,
+        chunksRetrieved: 0,
         batchTimesMs: [],
       });
 
@@ -164,20 +161,18 @@ export function AuditProvider({ children }: { children: ReactNode }) {
         setResults([...allResults]);
 
         if (data.meta) {
-          data.meta.keywords?.forEach((k: string) => allKeywords.add(k));
           data.meta.policiesMatched?.forEach((p: string) =>
             allPolicies.add(p)
           );
-          totalScanned = data.meta.totalPoliciesScanned ?? totalScanned;
+          totalChunks += data.meta.chunksRetrieved ?? 0;
         }
 
         const batchNum = Math.floor(i / BATCH_SIZE) + 1;
         setAnalysisProgress({
           batchCompleted: batchNum,
           batchTotal: totalBatches,
-          keywords: [...allKeywords],
           policiesMatched: [...allPolicies],
-          totalPoliciesScanned: totalScanned,
+          chunksRetrieved: totalChunks,
           batchTimesMs: [...batchTimesMs],
         });
       }

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.47.0",
+    "@pinecone-database/pinecone": "^7.1.0",
     "@supabase/supabase-js": "^2.101.1",
     "lucide-react": "^1.7.0",
     "next": "16.2.1",

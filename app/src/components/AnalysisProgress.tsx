@@ -8,7 +8,7 @@ import {
   CheckCircle2,
   Clock,
   Database,
-  Tag,
+  Layers,
 } from "lucide-react";
 import type { AnalysisProgress as ProgressData } from "@/context/AuditContext";
 
@@ -55,7 +55,11 @@ const UPLOAD_STEPS = [
   },
 ];
 
-export function AnalysisProgressView({ phase, progress, questionsTotal }: Props) {
+export function AnalysisProgressView({
+  phase,
+  progress,
+  questionsTotal,
+}: Props) {
   if (phase === "parsing-pdf" || phase === "extracting-questions") {
     return (
       <div className="w-full max-w-xl">
@@ -104,7 +108,7 @@ export function AnalysisProgressView({ phase, progress, questionsTotal }: Props)
       (progress.batchCompleted / progress.batchTotal) * 100
     );
     const questionsCompleted = Math.min(
-      progress.batchCompleted * 5,
+      progress.batchCompleted * 10,
       questionsTotal
     );
 
@@ -115,9 +119,7 @@ export function AnalysisProgressView({ phase, progress, questionsTotal }: Props)
             <h2 className="text-lg font-semibold text-zinc-800">
               Analyzing Compliance
             </h2>
-            <span className="text-sm font-medium text-blue-600">
-              {pct}%
-            </span>
+            <span className="text-sm font-medium text-blue-600">{pct}%</span>
           </div>
 
           {/* Progress bar */}
@@ -146,18 +148,15 @@ export function AnalysisProgressView({ phase, progress, questionsTotal }: Props)
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 <Database className="h-3.5 w-3.5" />
                 Policies matched
-                {progress.totalPoliciesScanned > 0 && (
+                {progress.policiesMatched.length > 0 && (
                   <span className="font-normal">
-                    ({progress.policiesMatched.length} of{" "}
-                    {progress.totalPoliciesScanned} scanned)
+                    ({progress.policiesMatched.length})
                   </span>
                 )}
               </div>
               <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
                 {progress.policiesMatched.length === 0 ? (
-                  <p className="text-xs text-zinc-400 italic">
-                    Searching...
-                  </p>
+                  <p className="text-xs text-zinc-400 italic">Searching...</p>
                 ) : (
                   progress.policiesMatched.map((name) => (
                     <div
@@ -174,37 +173,20 @@ export function AnalysisProgressView({ phase, progress, questionsTotal }: Props)
               </div>
             </div>
 
-            {/* Keywords used */}
+            {/* Chunks retrieved */}
             <div className="rounded-xl bg-zinc-50 p-4">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                <Tag className="h-3.5 w-3.5" />
-                Search keywords
-                {progress.keywords.length > 0 && (
-                  <span className="font-normal">
-                    ({progress.keywords.length})
-                  </span>
-                )}
+                <Layers className="h-3.5 w-3.5" />
+                Chunks retrieved
               </div>
-              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
-                {progress.keywords.length === 0 ? (
-                  <p className="text-xs text-zinc-400 italic">
-                    Extracting...
-                  </p>
-                ) : (
-                  progress.keywords.slice(0, 40).map((kw) => (
-                    <span
-                      key={kw}
-                      className="inline-block rounded-md bg-white px-2 py-0.5 text-xs text-zinc-600 shadow-sm border border-zinc-200"
-                    >
-                      {kw}
-                    </span>
-                  ))
-                )}
-                {progress.keywords.length > 40 && (
-                  <span className="text-xs text-zinc-400">
-                    +{progress.keywords.length - 40} more
-                  </span>
-                )}
+              <div className="flex flex-col gap-2">
+                <p className="text-2xl font-bold text-zinc-700">
+                  {progress.chunksRetrieved}
+                </p>
+                <p className="text-xs text-zinc-400">
+                  Most relevant page-level excerpts found via semantic
+                  similarity search
+                </p>
               </div>
             </div>
           </div>
@@ -217,15 +199,15 @@ export function AnalysisProgressView({ phase, progress, questionsTotal }: Props)
             </div>
             <ol className="list-decimal list-inside space-y-1 text-xs text-blue-600">
               <li>
-                Keywords are extracted from each batch of audit questions
+                Each question is converted to a vector embedding using OpenAI
               </li>
               <li>
-                All {progress.totalPoliciesScanned || 373} policy documents are
-                scanned for keyword matches
+                Pinecone vector DB finds the most semantically similar policy
+                page chunks
               </li>
               <li>
-                The most relevant policies (up to 80k chars) are sent to
-                GPT-4o-mini
+                Only the top matching chunks are sent to GPT-4o-mini (not entire
+                documents)
               </li>
               <li>
                 AI determines compliance status and locates evidence with page

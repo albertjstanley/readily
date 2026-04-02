@@ -1,77 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeCompliance } from "@/lib/gemini";
-import policyIndex from "@/lib/policy-index.json";
+import { queryRelevantChunks, type RetrievedChunk } from "@/lib/pinecone";
 
-const MAX_POLICY_CHARS = 80000;
+const TOP_K_PER_QUESTION = 10;
 
-interface PolicyEntry {
-  name: string;
-  category: string;
-  pages: { page: number; text: string }[];
-}
+function buildContext(chunks: RetrievedChunk[]): {
+  policyTexts: { name: string; text: string }[];
+  policiesFound: string[];
+} {
+  const byPolicy = new Map<string, Map<number, string>>();
 
-const allPolicies = (policyIndex as PolicyEntry[]).map((p) => ({
-  name: p.name,
-  text: p.pages.map((pg) => `[Page ${pg.page}] ${pg.text}`).join("\n"),
-}));
+  for (const chunk of chunks) {
+    let pages = byPolicy.get(chunk.policyName);
+    if (!pages) {
+      pages = new Map();
+      byPolicy.set(chunk.policyName, pages);
+    }
+    if (!pages.has(chunk.pageNum)) {
+      pages.set(chunk.pageNum, chunk.text);
+    }
+  }
 
-interface SelectionResult {
-  policies: { name: string; text: string }[];
-  keywords: string[];
-  totalPoliciesScanned: number;
-}
-
-function selectRelevantPolicies(
-  questions: { number: number; text: string; reference: string }[]
-): SelectionResult {
-  const stopWords = new Set([
-    "about", "after", "which", "would", "could", "should", "their",
-    "there", "these", "those", "under", "other", "where", "while",
-    "being", "every", "above", "below", "between", "through", "during",
-    "before", "state", "states", "does",
-  ]);
-
-  const keywords = [
-    ...new Set(
-      questions
-        .flatMap((q) =>
-          `${q.text} ${q.reference}`.toLowerCase().split(/\s+/)
-        )
-        .map((w) => w.replace(/[^a-z0-9]/g, ""))
-        .filter((w) => w.length > 4 && !stopWords.has(w))
-    ),
-  ];
-
-  const scored = allPolicies.map((p) => {
-    const lower = p.text.toLowerCase();
-    const score = keywords.filter((k) => lower.includes(k)).length;
-    return { ...p, score };
+  const policyTexts = [...byPolicy.entries()].map(([name, pages]) => {
+    const sorted = [...pages.entries()].sort((a, b) => a[0] - b[0]);
+    const text = sorted
+      .map(([pageNum, pageText]) => `[Page ${pageNum}] ${pageText}`)
+      .join("\n");
+    return { name, text };
   });
 
-  scored.sort((a, b) => b.score - a.score);
-
-  const selected: { name: string; text: string }[] = [];
-  let totalChars = 0;
-
-  for (const p of scored) {
-    if (p.score === 0) continue;
-    if (totalChars + p.text.length > MAX_POLICY_CHARS) continue;
-    selected.push({ name: p.name, text: p.text });
-    totalChars += p.text.length;
-  }
-
-  if (selected.length === 0 && scored.length > 0) {
-    const top = scored[0];
-    selected.push({
-      name: top.name,
-      text: top.text.slice(0, MAX_POLICY_CHARS),
-    });
-  }
-
   return {
-    policies: selected,
-    keywords,
-    totalPoliciesScanned: allPolicies.length,
+    policyTexts,
+    policiesFound: [...byPolicy.keys()],
   };
 }
 
@@ -86,17 +46,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { policies: relevant, keywords, totalPoliciesScanned } =
-      selectRelevantPolicies(questions);
-    const results = await analyzeCompliance(questions, relevant);
+    const questionTexts = questions.map(
+      (q: { text: string; reference: string }) =>
+        `${q.text} ${q.reference}`
+    );
+
+    const chunks = await queryRelevantChunks(questionTexts, TOP_K_PER_QUESTION);
+    const { policyTexts, policiesFound } = buildContext(chunks);
+
+    const results = await analyzeCompliance(questions, policyTexts);
 
     return NextResponse.json({
       results,
       meta: {
-        keywords,
-        policiesMatched: relevant.map((p) => p.name),
-        totalPoliciesScanned,
-        contextChars: relevant.reduce((sum, p) => sum + p.text.length, 0),
+        policiesMatched: policiesFound,
+        chunksRetrieved: chunks.length,
+        totalCharsContext: policyTexts.reduce(
+          (sum, p) => sum + p.text.length,
+          0
+        ),
       },
     });
   } catch (e) {
