@@ -98,20 +98,40 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       setPhase("parsing-pdf");
-      const { extractTextFromPDFClient } = await import("@/lib/pdf-client");
-      const text = await extractTextFromPDFClient(file);
+      const { extractPagesFromPDFClient } = await import("@/lib/pdf-client");
+      const pages = await extractPagesFromPDFClient(file);
 
       setPhase("extracting-questions");
-      const res = await fetch("/api/parse-questionnaire", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+
+      const CHUNK_SIZE = 10;
+      const pageChunks: { page: number; text: string }[][] = [];
+      for (let i = 0; i < pages.length; i += CHUNK_SIZE) {
+        pageChunks.push(pages.slice(i, i + CHUNK_SIZE));
+      }
+
+      const promises = pageChunks.map(async (chunk) => {
+        const res = await fetch("/api/parse-questionnaire", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pages: chunk }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        return data.questions as AuditQuestion[];
       });
 
-      if (!res.ok) throw new Error(await res.text());
+      const results = await Promise.all(promises);
+      const allQuestions = results.flat();
 
-      const data = await res.json();
-      setQuestions(data.questions);
+      const seen = new Set<number>();
+      const deduped = allQuestions.filter((q) => {
+        if (seen.has(q.number)) return false;
+        seen.add(q.number);
+        return true;
+      });
+      deduped.sort((a, b) => a.number - b.number);
+
+      setQuestions(deduped);
       setPhase("idle");
     } catch (e) {
       setError(

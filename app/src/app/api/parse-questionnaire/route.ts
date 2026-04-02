@@ -3,7 +3,14 @@ import { extractQuestions } from "@/lib/gemini";
 
 export async function POST(req: NextRequest) {
   try {
-    const { text } = await req.json();
+    const { text, pages } = await req.json();
+
+    if (pages && pages.length > 0) {
+      const questions = await extractQuestions(
+        pages.map((p: { page: number; text: string }) => p.text).join("\n")
+      );
+      return NextResponse.json({ questions });
+    }
 
     if (!text) {
       return NextResponse.json(

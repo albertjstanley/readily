@@ -14,10 +14,17 @@ async function ensureWorker() {
 export async function extractTextFromPDFClient(
   file: File
 ): Promise<string> {
+  const pages = await extractPagesFromPDFClient(file);
+  return pages.map((p) => p.text).join("\n");
+}
+
+export async function extractPagesFromPDFClient(
+  file: File
+): Promise<{ page: number; text: string }[]> {
   await ensureWorker();
   const buffer = await file.arrayBuffer();
   const doc = await getDocument({ data: new Uint8Array(buffer) }).promise;
-  const parts: string[] = [];
+  const pages: { page: number; text: string }[] = [];
 
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
@@ -26,8 +33,8 @@ export async function extractTextFromPDFClient(
       .filter((item) => typeof item.str === "string")
       .map((item) => item.str)
       .join(" ");
-    parts.push(text);
+    pages.push({ page: i, text });
   }
 
-  return parts.join("\n");
+  return pages;
 }
